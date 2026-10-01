@@ -4,7 +4,9 @@
 # For full terms and any additional permissions, see the NVDA license file: https://github.com/nvaccess/nvda/blob/master/copying.txt
 
 import argparse  # noqa: I001
+import os
 import sys
+import tempfile
 import winUser
 
 from typing import IO
@@ -38,6 +40,13 @@ class NoConsoleOptionParser(argparse.ArgumentParser):
 		out = ""
 		out = self.format_usage()
 		out += f"\nerror: {message}"
+		try:
+			with open(os.path.join(tempfile.gettempdir(), "nvda-cli-error.log"), "w", encoding="utf-8") as f:
+				f.write(out)
+		except OSError:
+			pass
+		if sys.stderr is not None:
+			print(out, file=sys.stderr)
 		winUser.MessageBox(0, out, "Command-line Argument Error", winUser.MB_ICONERROR)
 		sys.exit(2)
 
@@ -64,6 +73,32 @@ def stringToLang(value: str) -> str:
 	if normalizedLang is not None and normalizedLang in possibleLangNames:
 		return normalizedLang
 	raise argparse.ArgumentTypeError(f"Language code should be one of:\n{', '.join(possibleLangNames)}.")
+
+
+#: Level names accepted by --log-level, mirroring general.loggingLevel in the config.
+_LOG_LEVEL_NAMES = {
+	"secrets": 5,
+	"debug_unredacted": 5,
+	"debug": 10,
+	"io": 12,
+	"debugwarning": 15,
+	"info": 20,
+	"off": 100,
+}
+
+
+def logLevelFromString(value: str) -> int:
+	"""Accept a number or a level name for --log-level, or explain the failure."""
+	try:
+		level = int(value)
+	except ValueError:
+		level = _LOG_LEVEL_NAMES.get(value.casefold(), -1)
+	if level not in (5, 10, 12, 15, 20, 100):
+		names = ", ".join(sorted(_LOG_LEVEL_NAMES))
+		raise argparse.ArgumentTypeError(
+			f"invalid log level: {value!r} (expected {names}, or 5, 10, 12, 15, 20, 100)",
+		)
+	return level
 
 
 _parser: NoConsoleOptionParser | None = None
@@ -105,9 +140,8 @@ def _createNVDAArgParser() -> NoConsoleOptionParser:
 		"-l",
 		"--log-level",
 		dest="logLevel",
-		type=int,
+		type=logLevelFromString,
 		default=0,  # 0 means unspecified in command line.
-		choices=[5, 10, 12, 15, 20, 100],
 		help="The lowest level of message logged (secrets 5, debug 10, input/output 12, debugwarning 15, info 20, off 100).\n"
 		"Default value is 20 (info) or the user configured setting.\n"
 		"Logging is always disabled if secure mode is enabled.\n",
