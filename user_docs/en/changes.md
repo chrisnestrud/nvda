@@ -18,6 +18,7 @@
   * Saving other settings no longer unexpectedly disables automatic startup.
   * If saving fails, NVDA now reports the error and continues saving other settings.
 * Corrected the English pronunciation of Unicode braille characters ⡸, ⢸ and ⣸, and several mathematical symbols. (#20632)
+* The `--log-level` command line option now accepts level names such as `info` or `debug` in addition to numbers, and command line argument errors are now written to `%TEMP%\nvda-cli-error.log` so unattended launches can be diagnosed. (#20968, @chrisnestrud)
 
 #### Performance
 
