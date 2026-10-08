@@ -36,18 +36,22 @@ class NoConsoleOptionParser(argparse.ArgumentParser):
 		winUser.MessageBox(0, self.format_help(), "Help", 0)
 
 	def error(self, message: str):
-		"""Shows an error in a standard Windows message dialog, and then exits NVDA"""
-		out = ""
+		"""Record the error to a file and stderr, show it in a Windows message dialog, and exit NVDA."""
 		out = self.format_usage()
 		out += f"\nerror: {message}"
+		logPath: str | None = os.path.join(tempfile.gettempdir(), "nvda-cli-error.log")
 		try:
-			with open(os.path.join(tempfile.gettempdir(), "nvda-cli-error.log"), "w", encoding="utf-8") as f:
+			with open(logPath, "w", encoding="utf-8") as f:
 				f.write(out)
 		except OSError:
-			pass
+			logPath = None
 		if sys.stderr is not None:
-			print(out, file=sys.stderr)
-		winUser.MessageBox(0, out, "Command-line Argument Error", winUser.MB_ICONERROR)
+			try:
+				print(out, file=sys.stderr)
+			except (OSError, ValueError):
+				pass
+		dialogMessage = out if logPath is None else f"{out}\n\nThe error has been saved to {logPath}"
+		winUser.MessageBox(0, dialogMessage, "Command-line Argument Error", winUser.MB_ICONERROR)
 		sys.exit(2)
 
 
@@ -75,9 +79,8 @@ def stringToLang(value: str) -> str:
 	raise argparse.ArgumentTypeError(f"Language code should be one of:\n{', '.join(possibleLangNames)}.")
 
 
-#: Level names accepted by --log-level, mirroring general.loggingLevel in the config.
+#: Level names accepted by --log-level, mirroring the level names used by general.loggingLevel.
 _LOG_LEVEL_NAMES = {
-	"secrets": 5,
 	"debug_unredacted": 5,
 	"debug": 10,
 	"io": 12,
@@ -86,6 +89,9 @@ _LOG_LEVEL_NAMES = {
 	"off": 100,
 }
 
+#: Numeric level values accepted by --log-level.
+_LOG_LEVEL_VALUES = frozenset(_LOG_LEVEL_NAMES.values())
+
 
 def logLevelFromString(value: str) -> int:
 	"""Accept a number or a level name for --log-level, or explain the failure."""
@@ -93,10 +99,11 @@ def logLevelFromString(value: str) -> int:
 		level = int(value)
 	except ValueError:
 		level = _LOG_LEVEL_NAMES.get(value.casefold(), -1)
-	if level not in (5, 10, 12, 15, 20, 100):
+	if level not in _LOG_LEVEL_VALUES:
 		names = ", ".join(sorted(_LOG_LEVEL_NAMES))
+		numbers = ", ".join(str(number) for number in sorted(_LOG_LEVEL_VALUES))
 		raise argparse.ArgumentTypeError(
-			f"invalid log level: {value!r} (expected {names}, or 5, 10, 12, 15, 20, 100)",
+			f"invalid log level: {value!r} (expected {names}, or {numbers})",
 		)
 	return level
 
@@ -142,7 +149,7 @@ def _createNVDAArgParser() -> NoConsoleOptionParser:
 		dest="logLevel",
 		type=logLevelFromString,
 		default=0,  # 0 means unspecified in command line.
-		help="The lowest level of message logged (secrets 5, debug 10, input/output 12, debugwarning 15, info 20, off 100).\n"
+		help="The lowest level of message logged (debug_unredacted 5, debug 10, io 12, debugwarning 15, info 20, off 100).\n"
 		"Default value is 20 (info) or the user configured setting.\n"
 		"Logging is always disabled if secure mode is enabled.\n",
 	)
@@ -198,7 +205,7 @@ def _createNVDAArgParser() -> NoConsoleOptionParser:
 		dest="debugLogging",
 		default=False,
 		help="Enable debug level logging just for this run.\n"
-		"This setting will override any other log level (--loglevel, -l) argument given, "
+		"This setting will override any other log level (--log-level, -l) argument given, "
 		"as well as no logging option.",
 	)
 	parser.add_argument(
@@ -207,7 +214,7 @@ def _createNVDAArgParser() -> NoConsoleOptionParser:
 		dest="noLogging",
 		default=False,
 		help="Disable logging completely for this run.\n"
-		"This setting can be overwritten with other log level (--loglevel, -l) "
+		"This setting can be overwritten with other log level (--log-level, -l) "
 		"switch or if debug logging is specified.",
 	)
 	parser.add_argument(
